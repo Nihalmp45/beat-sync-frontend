@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 
+const BASE_URL = "https://beat-sync-backend-1.onrender.com"; 
+
 export default function SongInputForm() {
   const [songName, setSongName] = useState("");
   const [uploadedFile, setUploadedFile] = useState(null);
@@ -19,16 +21,11 @@ export default function SongInputForm() {
       const response = await fetch(url);
       const data = await response.json();
 
-      if (!response.ok || data.error) {
-        throw new Error(data.error || "Song not found.");
-      }
-
-      if (data.results.length === 0) {
+      if (!response.ok || data.error || data.results.length === 0) {
         throw new Error("Song not found.");
       }
 
-      const songPreviewUrl = data.results[0].audio;
-      setFileURL(songPreviewUrl);
+      setFileURL(data.results[0].audio);
       setUploadedFile(null);
     } catch (error) {
       setError(error.message || "Error fetching song.");
@@ -55,10 +52,10 @@ export default function SongInputForm() {
     formData.append("songName", songName);
     if (uploadedFile) formData.append("songFile", uploadedFile);
 
-    setIsLoading(true); // Show loading state
+    setIsLoading(true);
 
     try {
-      const response = await fetch("http://localhost:4000/api/video/generate-video", {
+      const response = await fetch(`${BASE_URL}/api/video/generate-video`, {
         method: "POST",
         body: formData,
       });
@@ -68,8 +65,9 @@ export default function SongInputForm() {
       }
 
       const data = await response.json();
-      setVideoUrl(data.videoUrl);
+      setVideoUrl(`${BASE_URL}${data.videoUrl}`); 
       alert("Video generated successfully!");
+
       setSongName("");
       setUploadedFile(null);
       setFileURL("");
@@ -77,7 +75,7 @@ export default function SongInputForm() {
     } catch (error) {
       setError(error.message || "Error generating video.");
     } finally {
-      setIsLoading(false); // Hide loading state
+      setIsLoading(false);
     }
   };
 
@@ -138,7 +136,7 @@ export default function SongInputForm() {
             }`}
             disabled={isLoading}
           >
-            {isLoading ? "Generating... hold on! Syncing the beats it may take a while" : "Generate Video with Beat sync 🥁🎶"}
+            {isLoading ? "Generating... hold on! Syncing the beats it may take a while" : "Generate Video with Beat Sync 🥁🎶"}
           </button>
         </form>
 
@@ -151,15 +149,15 @@ export default function SongInputForm() {
 
         {videoUrl && (
           <div className="mt-6 text-center">
-            <p className="text-white text-lg font-medium">Your Video:</p>
+            <p className="text-gray-800 text-lg font-medium">Your Video:</p>
             <video controls className="w-full mt-2 rounded-lg shadow-lg">
-              <source src={`http://localhost:4000${videoUrl}`} type="video/mp4" />
+              <source src={videoUrl} type="video/mp4" />
               Your browser does not support the video tag.
             </video>
 
             {/* Download Video Button */}
             <a
-              href={`http://localhost:4000${videoUrl}`}
+              href={videoUrl}
               download
               className="mt-4 inline-block px-6 py-3 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
             >
