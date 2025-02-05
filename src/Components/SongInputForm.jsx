@@ -1,171 +1,283 @@
 import React, { useState } from "react";
 
-const BASE_URL = "https://beat-sync-backend-1.onrender.com"; 
+const BASE_URL = "https://beat-sync-backend-new.onrender.com";
 
 export default function SongInputForm() {
-  const [songName, setSongName] = useState("");
-  const [uploadedFile, setUploadedFile] = useState(null);
-  const [fileURL, setFileURL] = useState("");
-  const [error, setError] = useState("");
+  const [promptText, setPromptText] = useState("");
+  const [script, setScript] = useState(""); // Define the script state here
   const [videoUrl, setVideoUrl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [status, setStatus] = useState("");
+  const [videoGenerated, setVideoGenerated] = useState(false); // Track if video is generated
 
-  const fetchSongFromAPI = async () => {
-    if (!songName) return;
-    setIsLoading(true);
-
-    try {
-      const clientId = "de0debdc";
-      const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${clientId}&format=jsonpretty&name=${songName}&limit=1`;
-
-      const response = await fetch(url);
-      const data = await response.json();
-
-      if (!response.ok || data.error || data.results.length === 0) {
-        throw new Error("Song not found.");
-      }
-
-      setFileURL(data.results[0].audio);
-      setUploadedFile(null);
-    } catch (error) {
-      setError(error.message || "Error fetching song.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    setUploadedFile(file);
-    setFileURL(URL.createObjectURL(file));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!songName && !uploadedFile) {
-      setError("Please enter a song name or upload a song file.");
+  const handleGenerateScript = async () => {
+    if (!promptText) {
+      alert("Please enter a prompt for video generation.");
       return;
     }
 
-    const formData = new FormData();
-    formData.append("songName", songName);
-    if (uploadedFile) formData.append("songFile", uploadedFile);
-
     setIsLoading(true);
+    setVideoUrl("");
+    setStatus("Generating script...");
 
     try {
-      const response = await fetch(`${BASE_URL}/api/video/generate-video`, {
-        method: "POST",
-        body: formData,
-      });
+      // Step 1: Generate a script using ChatGPT
+      const scriptResponse = await fetch(
+        `${BASE_URL}/api/video/generate-script`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: promptText }),
+        }
+      );
 
-      if (!response.ok) {
-        throw new Error("Failed to generate video.");
+      const scriptData = await scriptResponse.json();
+      if (!scriptResponse.ok || !scriptData.script) {
+        throw new Error(scriptData.error || "Failed to generate script.");
       }
 
-      const data = await response.json();
-      setVideoUrl(`${BASE_URL}${data.videoUrl}`); 
-      alert("Video generated successfully!");
+      const generatedScript = scriptData.script;
+      setScript(generatedScript); // Set the script in state for editing
 
-      setSongName("");
-      setUploadedFile(null);
-      setFileURL("");
-      setError("");
+      setStatus("Script generated, feel free to edit it.");
+      setIsLoading(false); // Allow video generation only after script is edited
     } catch (error) {
-      setError(error.message || "Error generating video.");
-    } finally {
+      console.error("Error:", error);
+      alert(error.message);
       setIsLoading(false);
     }
   };
 
+  const handleGenerateVideo = async () => {
+    if (!script) {
+      alert("Please edit the script before submitting.");
+      return;
+    }
+
+    setIsLoading(true);
+    setVideoUrl("");
+    setStatus("Submitting for video generation...");
+
+    try {
+      // Step 2: Send the edited script to the video generation API
+      const videoResponse = await fetch(
+        `${BASE_URL}/api/video/generate-video`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: script }), // Use the edited script
+        }
+      );
+
+      const videoData = await videoResponse.json();
+      if (!videoResponse.ok || !videoData.uuid) {
+        throw new Error(videoData.error || "Failed to queue video generation.");
+      }
+
+      pollVideoStatus(videoData.uuid);
+    } catch (error) {
+      console.error("Error:", error);
+      alert(error.message);
+      setIsLoading(false);
+    }
+  };
+
+  const pollVideoStatus = async (uuid) => {
+    // Polling logic for checking video status
+    try {
+      const statusResponse = await fetch(
+        `${BASE_URL}/api/video/video-status?uuid=${uuid}`
+      );
+      const statusData = await statusResponse.json();
+  
+      if (statusData.status === "success" && statusData.videoUrl) {
+        setVideoUrl(statusData.videoUrl);
+        setStatus("Video generated successfully!");
+        setVideoGenerated(true); // Mark video as generated
+        setIsLoading(false); // Reset loading state
+      } else {
+        setStatus(statusData.status);
+        setTimeout(() => pollVideoStatus(uuid), 200000); // Retry polling every 20 seconds
+      }
+    } catch (error) {
+      console.error("Error polling video status:", error);
+      setStatus("Error checking video status.");
+      setIsLoading(false); // Reset loading state in case of error
+    }
+  };
+  
+
+  const handleDownloadVideo = () => {
+    const a = document.createElement("a");
+    a.href = videoUrl;
+    a.download = "generated-video.mp4"; // Set default file name for download
+    a.click();
+  };
+
   return (
-    <div className="h-screen flex items-center justify-center bg-gradient-to-r from-blue-500 to-teal-500">
-      <div className="max-w-5xl mx-auto bg-white p-8 rounded-xl shadow-2xl w-screen">
-        <h2 className="text-3xl font-semibold text-center text-gray-800 mb-6">Create Your Video</h2>
+    <div style={styles.container}>
+      <h1 style={styles.heading}>Generate AI Video 🎥</h1>
 
-        {error && <div className="text-red-500 text-center mb-4">{error}</div>}
+      <textarea
+        style={styles.textarea}
+        value={promptText}
+        onChange={(e) => setPromptText(e.target.value)}
+        placeholder="Enter your video idea... and generate script"
+      />
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Upload Song File */}
-          <div className="flex flex-col space-y-2">
-            <label className="text-lg font-medium">Upload Song File</label>
-            <input
-              type="file"
-              accept=".mp3,.wav"
-              onChange={handleFileChange}
-              className="w-full p-4 bg-gray-100 text-gray-800 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-            />
-          </div>
+      <button
+        style={{
+          ...styles.button,
+          ...(isLoading && styles.buttonHover), // Apply hover effect while loading
+        }}
+        onClick={handleGenerateScript}
+        disabled={isLoading}
+      >
+        {isLoading ? "Generating..." : "Generate Script"}
+      </button>
 
-          {/* Enter Song Name */}
-          <div className="flex flex-col space-y-2">
-            <label className="text-lg font-medium">Enter Song Name</label>
-            <input
-              type="text"
-              placeholder="Enter song name"
-              value={songName}
-              onChange={(e) => setSongName(e.target.value)}
-              className="w-full p-4 bg-gray-100 text-gray-800 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-            />
-            <button
-              type="button"
-              onClick={fetchSongFromAPI}
-              className="w-full py-3 bg-green-500 text-white rounded-lg shadow-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500"
-            >
-              {isLoading ? "Fetching..." : "Play the song"}
-            </button>
-          </div>
+      {status && <p style={styles.status}>{status}</p>}
+      {isLoading && <p style={styles.status}>Loading...</p>}
 
-          {fileURL && (
-            <div className="space-y-2">
-              <h3 className="text-center text-lg">Now Playing</h3>
-              <audio controls className="w-full mt-2 rounded-lg shadow-lg">
-                <source src={fileURL} />
-                Your browser does not support the audio tag.
-              </audio>
-            </div>
-          )}
-
+      {script && (
+        <div>
+          <h3>Edit Script</h3>
+          <textarea
+            style={styles.editTextarea} // Increased width for script editing area
+            value={script}
+            onChange={(e) => setScript(e.target.value)} // Update the script in state
+          />
           <button
-            type="submit"
-            className={`w-full py-3 font-semibold rounded-lg shadow-md focus:outline-none ${
-              isLoading
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-blue-600 text-white hover:bg-blue-700 focus:ring-2 focus:ring-blue-500"
-            }`}
+            style={styles.button}
+            onClick={handleGenerateVideo}
             disabled={isLoading}
           >
-            {isLoading ? "Generating... hold on! Syncing the beats it may take a while" : "Generate Video with Beat Sync 🥁🎶"}
+            {isLoading ? "Generating Video ...please hold on!" : "Generate Video"}
           </button>
-        </form>
+        </div>
+      )}
 
-        {isLoading && (
-          <div className="text-center text-white mt-4">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-4 border-white mx-auto"></div>
-            <p>Generating video...</p>
-          </div>
-        )}
-
-        {videoUrl && (
-          <div className="mt-6 text-center">
-            <p className="text-gray-800 text-lg font-medium">Your Video:</p>
-            <video controls className="w-full mt-2 rounded-lg shadow-lg">
-              <source src={videoUrl} type="video/mp4" />
-              Your browser does not support the video tag.
-            </video>
-
-            {/* Download Video Button */}
-            <a
-              href={videoUrl}
-              download
-              className="mt-4 inline-block px-6 py-3 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-            >
-              Download Video
-            </a>
-          </div>
-        )}
-      </div>
+      {videoUrl && (
+        <div style={styles.videoContainer}>
+          <h2 style={styles.videoTitle}>Generated Video 🎥</h2>
+          <video controls style={styles.video}>
+            <source src={videoUrl} type="video/mp4" />
+            Your browser does not support the video tag.
+          </video>
+          {videoGenerated && (
+            <div>
+              <button
+                style={styles.downloadButton}
+                onClick={handleDownloadVideo}
+              >
+                Download Video
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
+
+const styles = {
+  container: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "40px",
+    backgroundColor: "#f7f7f7",
+    boxSizing: "border-box",
+    fontFamily: '"Arial", sans-serif',
+    minHeight: "100vh", // Allow scrolling
+  },
+  heading: {
+    fontSize: "36px",
+    marginBottom: "30px",
+    textAlign: "center",
+    color: "#4a4a4a",
+    fontWeight: "bold",
+  },
+  textarea: {
+    width: "90%",
+    maxWidth: "600px",
+    height: "150px",
+    fontSize: "18px",
+    padding: "12px",
+    borderRadius: "12px",
+    border: "1px solid #ccc",
+    resize: "none",
+    marginBottom: "30px", // Increased margin to create spacing
+    boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)",
+    transition: "box-shadow 0.3s ease",
+  },
+  editTextarea: {
+    width: "90%",
+    maxWidth: "600px",
+    height: "300px",
+    fontSize: "18px",
+    padding: "12px",
+    borderRadius: "12px",
+    border: "1px solid #ccc",
+    resize: "none",
+    marginBottom: "30px", // Increased margin to create spacing
+    boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)",
+    transition: "box-shadow 0.3s ease",
+  },
+  button: {
+    width: "50%",
+    maxWidth: "300px",
+    padding: "16px",
+    fontSize: "18px",
+    backgroundColor: "#007bff",
+    color: "#fff",
+    border: "none",
+    borderRadius: "12px",
+    cursor: "pointer",
+    marginBottom: "30px", // Increased margin to create spacing
+    transition: "background-color 0.3s ease, transform 0.2s ease",
+  },
+  buttonHover: {
+    backgroundColor: "#0056b3",
+    transform: "scale(1.05)",
+  },
+  status: {
+    fontSize: "18px",
+    textAlign: "center",
+    color: "#333",
+    fontWeight: "lighter",
+    marginBottom: "30px", // Increased margin to create spacing
+  },
+  videoContainer: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    width: "100%",
+    marginTop: "30px",
+  },
+  videoTitle: {
+    fontSize: "22px",
+    marginBottom: "15px",
+    color: "#333",
+    fontWeight: "bold",
+  },
+  video: {
+    width: "90%",
+    maxWidth: "500px",
+    height: "auto", // Ensures the video maintains portrait aspect ratio
+    borderRadius: "12px",
+    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
+  },
+  downloadButton: {
+    marginTop: "10px",
+    padding: "12px 24px",
+    fontSize: "18px",
+    backgroundColor: "#28a745",
+    color: "#fff",
+    border: "none",
+    borderRadius: "12px",
+    cursor: "pointer",
+    transition: "background-color 0.3s ease, transform 0.2s ease",
+  },
+};
