@@ -1,11 +1,13 @@
 import React, { useState } from "react";
 
-const BASE_URL = "https://beat-sync-backend-new.onrender.com";
+const BASE_URL = "http://localhost:4000";
 
 export default function SongInputForm() {
   const [promptText, setPromptText] = useState("");
   const [script, setScript] = useState(""); // Define the script state here
+  const [shortenedScript, setShortenedScript] = useState(""); // State for shortened script
   const [videoUrl, setVideoUrl] = useState("");
+  const [subtitlesUrl, setSubtitlesUrl] = useState(""); // State for subtitle URL
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [videoGenerated, setVideoGenerated] = useState(false); // Track if video is generated
@@ -39,6 +41,10 @@ export default function SongInputForm() {
       const generatedScript = scriptData.script;
       setScript(generatedScript); // Set the script in state for editing
 
+      // Step 2: Create a shortened version of the script for subtitles
+      const shortenedVersion = generateShortenedScript(generatedScript);
+      setShortenedScript(shortenedVersion); // Set the shortened script for subtitles
+
       setStatus("Script generated, feel free to edit it.");
       setIsLoading(false); // Allow video generation only after script is edited
     } catch (error) {
@@ -46,6 +52,15 @@ export default function SongInputForm() {
       alert(error.message);
       setIsLoading(false);
     }
+  };
+
+  const generateShortenedScript = (fullScript) => {
+    // Here we generate a shorter version of the script, this could be a truncation or summary
+    const maxLength = 300; // Limit the length to 300 characters for the subtitle
+    if (fullScript.length > maxLength) {
+      return fullScript.substring(0, maxLength) + "...";
+    }
+    return fullScript;
   };
 
   const handleGenerateVideo = async () => {
@@ -56,10 +71,11 @@ export default function SongInputForm() {
 
     setIsLoading(true);
     setVideoUrl("");
+    setSubtitlesUrl(""); // Clear subtitles URL
     setStatus("Submitting for video generation...");
 
     try {
-      // Step 2: Send the edited script to the video generation API
+      // Step 3: Send the edited script to the video generation API
       const videoResponse = await fetch(
         `${BASE_URL}/api/video/generate-video`,
         {
@@ -89,15 +105,17 @@ export default function SongInputForm() {
         `${BASE_URL}/api/video/video-status?uuid=${uuid}`
       );
       const statusData = await statusResponse.json();
-  
+
       if (statusData.status === "success" && statusData.videoUrl) {
         setVideoUrl(statusData.videoUrl);
+        // Use the shortened script for subtitles
+        setSubtitlesUrl(generateSubtitlesUrl(shortenedScript)); // Set subtitles URL from the shortened script
         setStatus("Video generated successfully!");
         setVideoGenerated(true); // Mark video as generated
         setIsLoading(false); // Reset loading state
       } else {
         setStatus(statusData.status);
-        setTimeout(() => pollVideoStatus(uuid), 200000); // Retry polling every 20 seconds
+        setTimeout(() => pollVideoStatus(uuid), 600000); // Retry polling every 10 seconds
       }
     } catch (error) {
       console.error("Error polling video status:", error);
@@ -105,7 +123,14 @@ export default function SongInputForm() {
       setIsLoading(false); // Reset loading state in case of error
     }
   };
-  
+
+  const generateSubtitlesUrl = (shortenedScript) => {
+    // Create a VTT (WebVTT) formatted subtitle file
+    const subtitleContent = `WEBVTT\n\n00:00:00.000 --> 00:00:10.000\n${shortenedScript}\n`;
+    const subtitleFile = new Blob([subtitleContent], { type: "text/vtt" });
+    const subtitleUrl = URL.createObjectURL(subtitleFile);
+    return subtitleUrl;
+  };
 
   const handleDownloadVideo = () => {
     const a = document.createElement("a");
@@ -162,6 +187,9 @@ export default function SongInputForm() {
           <h2 style={styles.videoTitle}>Generated Video 🎥</h2>
           <video controls style={styles.video}>
             <source src={videoUrl} type="video/mp4" />
+            {subtitlesUrl && (
+              <track src={subtitlesUrl} kind="subtitles" label="English" default />
+            )}
             Your browser does not support the video tag.
           </video>
           {videoGenerated && (
