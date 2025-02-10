@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-const BASE_URL = "https://ai-video-generator-v6z3.onrender.com";
+const BASE_URL = "http://localhost:4000";
 
 // http://localhost:4000
 
@@ -117,7 +117,7 @@ export default function SongInputForm() {
         setIsLoading(false); // Reset loading state
       } else {
         setStatus(statusData.status);
-        setTimeout(() => pollVideoStatus(uuid), 600000); // Retry polling every 10 seconds
+        setTimeout(() => pollVideoStatus(uuid), 1000000); // Retry polling every 10 seconds
       }
     } catch (error) {
       console.error("Error polling video status:", error);
