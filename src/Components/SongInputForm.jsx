@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 
-const BASE_URL = "https://beat-sync-backend-3.onrender.com";
+const BASE_URL = "https://ai-video-generator-v6z3.onrender.com";
+
+// http://localhost:4000
 
 export default function SongInputForm() {
   const [promptText, setPromptText] = useState("");
