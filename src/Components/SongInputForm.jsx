@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-const BASE_URL = "http://localhost:4000";
+const BASE_URL = "https://ai-video-phpr.onrender.com";
 
 // http://localhost:4000
 
