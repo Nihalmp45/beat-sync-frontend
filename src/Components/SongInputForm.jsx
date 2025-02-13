@@ -1,7 +1,9 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import axios from "axios";
 
-const BASE_URL = "http://localhost:4000";
+const BASE_URL = "https://beat-sync-backend-jcsc.onrender.com";
+
+// http://localhost:4000
 
 export default function SongInputForm() {
   const [promptText, setPromptText] = useState("");
@@ -9,93 +11,147 @@ export default function SongInputForm() {
   const [shortenedScript, setShortenedScript] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [subtitlesUrl, setSubtitlesUrl] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [status, setStatus] = useState("");
   const [videoGenerated, setVideoGenerated] = useState(false);
-  const [animationEffect, setAnimationEffect] = useState("fade-in"); // New state for animation
+  const [animationStyle, setAnimationStyle] = useState("fade-in");
+  const [aspectRatio, setAspectRatio] = useState("landscape");
 
   const handleGenerateScript = async () => {
-    if (!promptText) {
+    if (!promptText.trim()) {
       alert("Please enter a prompt for video generation.");
       return;
     }
 
-    setIsLoading(true);
-    setVideoUrl("");
+    setIsGeneratingScript(true);
     setStatus("Generating script...");
 
     try {
-      const response = await axios.post(`${BASE_URL}/api/video/generate-script`, { prompt: promptText });
-      setScript(response.data.script);
-      setShortenedScript(generateShortenedScript(response.data.script));
+      const response = await axios.post(
+        `${BASE_URL}/api/video/generate-script`,
+        {
+          prompt: promptText,
+        }
+      );
 
-      setStatus("Script generated, feel free to edit it.");
+      const generatedScript = response.data.script;
+      setScript(generatedScript);
+      setShortenedScript(generateShortenedScript(generatedScript));
+
+      setStatus("Script generated! Feel free to edit.");
     } catch (error) {
-      console.error("Error:", error);
-      alert("Failed to generate script.");
+      console.error("Error generating script:", error);
+      setStatus("Failed to generate script.");
     } finally {
-      setIsLoading(false);
+      setIsGeneratingScript(false);
     }
   };
 
   const generateShortenedScript = (fullScript) => {
     const maxLength = 300;
-    return fullScript.length > maxLength ? fullScript.substring(0, maxLength) + "..." : fullScript;
+    return fullScript.length > maxLength
+      ? `${fullScript.substring(0, maxLength)}...`
+      : fullScript;
   };
 
   const handleGenerateVideo = async () => {
-    if (!script) {
-      alert("Please edit the script before submitting.");
+    if (!script.trim()) {
+      alert("Please edit the script before generating.");
       return;
     }
 
-    setIsLoading(true);
-    setVideoUrl("");
-    setSubtitlesUrl("");
-    setStatus("Submitting for video generation...");
+    setIsGeneratingVideo(true);
+    setStatus("Submitting video generation request...");
 
     try {
-      const response = await axios.post(`${BASE_URL}/api/video/generate-video`, {
-        prompt: script,
-        animationEffect, // Send animation effect
-      });
+      const response = await axios.post(
+        `${BASE_URL}/api/video/generate-video`,
+        {
+          prompt: script,
+          aspectRatio, // Send aspect ratio instead of subtitle color
+          animationStyle,
+        }
+      );
 
       pollVideoStatus(response.data.uuid);
     } catch (error) {
-      console.error("Error:", error);
-      alert("Failed to queue video generation.");
-      setIsLoading(false);
+      console.error("Error submitting video generation request:", error);
+      setStatus("Failed to queue video generation.");
+      setIsGeneratingVideo(false);
     }
   };
 
-  const pollVideoStatus = async (uuid) => {
+  const pollVideoStatus = async (uuid, attempt = 0) => {
     try {
-      const response = await axios.get(`${BASE_URL}/api/video/video-status?uuid=${uuid}`);
+      const response = await axios.get(
+        `${BASE_URL}/api/video/video-status?uuid=${uuid}`
+      );
 
-      if (response.data.status === "success" && response.data.videoUrl) {
-        setVideoUrl(response.data.videoUrl);
+      if (
+        response.data.status === "success" &&
+        response.data.processedVideoUrl
+      ) {
+        setVideoUrl(response.data.processedVideoUrl);
         setSubtitlesUrl(generateSubtitlesUrl(shortenedScript));
-        setStatus("Video generated successfully!");
+        setStatus("✅ Video generated successfully!");
         setVideoGenerated(true);
-        setIsLoading(false);
+        setIsGeneratingVideo(false);
+      } else if (response.data.status === "processing") {
+        setStatus(`⏳ Processing video... (${response.data.progress}%)`);
+        setTimeout(() => pollVideoStatus(uuid, attempt + 1), 400000);
+      } else if (attempt < 20) {
+        setStatus("⏳ Waiting for video generation...");
+        setTimeout(() => pollVideoStatus(uuid, attempt + 1), 400000);
       } else {
-        setTimeout(() => pollVideoStatus(uuid), 600000);
+        setStatus("❌ Video generation timeout. Try again.");
+        setIsGeneratingVideo(false);
       }
     } catch (error) {
       console.error("Error polling video status:", error);
-      setStatus("Error checking video status.");
-      setIsLoading(false);
+      setStatus("❌ Error checking video status.");
+      setIsGeneratingVideo(false);
     }
   };
 
   const generateSubtitlesUrl = (shortenedScript) => {
     const subtitleContent = `WEBVTT\n\n00:00:00.000 --> 00:00:10.000\n${shortenedScript}\n`;
-    return URL.createObjectURL(new Blob([subtitleContent], { type: "text/vtt" }));
+    return URL.createObjectURL(
+      new Blob([subtitleContent], { type: "text/vtt" })
+    );
+  };
+
+  const handleDownload = () => {
+    if (videoUrl) {
+      const link = document.createElement("a");
+      link.href = videoUrl;
+      link.download = "generated_video.mp4";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
+  const handleShare = (platform) => {
+    if (!videoUrl) return;
+
+    const encodedUrl = encodeURIComponent(videoUrl);
+    const shareLinks = {
+      whatsapp: `https://wa.me/?text=Check%20out%20this%20AI-generated%20video!%20${encodedUrl}`,
+      twitter: `https://twitter.com/intent/tweet?text=Check%20out%20this%20AI-generated%20video!&url=${encodedUrl}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
+    };
+
+    if (platform === "instagram") {
+      alert("Instagram sharing requires manual upload.");
+    } else {
+      window.open(shareLinks[platform], "_blank");
+    }
   };
 
   return (
     <div className="flex flex-col items-center min-h-screen bg-gray-900 text-white p-6">
-      <h1 className="text-4xl font-bold">Generate AI Video 🎥</h1>
+      <h1 className="text-4xl font-bold mb-4">Generate AI Video 🎥</h1>
 
       <textarea
         className="w-full max-w-xl h-32 p-4 rounded-lg bg-gray-800 border border-gray-700"
@@ -105,11 +161,11 @@ export default function SongInputForm() {
       />
 
       <button
-        className="mt-4 py-3 text-lg font-semibold bg-blue-600 rounded-lg"
+        className="mt-4 py-3 px-4 text-lg font-semibold bg-blue-600 rounded-lg"
         onClick={handleGenerateScript}
-        disabled={isLoading}
+        disabled={isGeneratingScript}
       >
-        {isLoading ? "Generating..." : "Generate Script"}
+        {isGeneratingScript ? "Generating..." : "Generate Script"}
       </button>
 
       {script && (
@@ -119,241 +175,88 @@ export default function SongInputForm() {
             value={script}
             onChange={(e) => setScript(e.target.value)}
           />
-          <label className="mt-4">Animation Effect:</label>
+          {status && (
+            <div className="mt-4 p-3 bg-gray-800 text-white rounded-lg">
+              {status}
+            </div>
+          )}
+          <label className="mt-4">Video Effect:</label>
           <select
             className="p-2 bg-gray-800 border border-gray-700"
-            value={animationEffect}
-            onChange={(e) => setAnimationEffect(e.target.value)}
+            value={animationStyle}
+            onChange={(e) => setAnimationStyle(e.target.value)}
           >
             <option value="fade-in">Fade In</option>
-            <option value="zoom">Zoom</option>
-            <option value="motion-blur">Motion Blur</option>
+            <option value="zoom">Fade Out</option>
           </select>
-          <button className="mt-4 py-3 text-lg font-semibold bg-green-600 rounded-lg" onClick={handleGenerateVideo}>
-            {isLoading ? "Generating..." : "Generate Video"}
+
+          <label className="mt-4">Select Video Orientation:</label>
+          <select
+            className="p-2 bg-gray-800 border border-gray-700"
+            value={aspectRatio}
+            onChange={(e) => setAspectRatio(e.target.value)}
+          >
+            <option value="landscape">Landscape 📺 (16:9) </option>
+            <option value="portrait">Portrait 📱 (9:16)</option>
+          </select>
+
+          <button
+            className="mt-4 py-3 px-4 text-lg font-semibold bg-green-600 rounded-lg"
+            onClick={handleGenerateVideo}
+            disabled={isGeneratingVideo}
+          >
+            {isGeneratingVideo ? "Generating..." : "Generate Video"}
           </button>
+          {/* Status Message */}
+          
         </>
       )}
 
       {videoUrl && (
-        <div className="mt-6">
-          <h2 className="text-2xl font-semibold">Generated Video 🎥</h2>
-          <video controls className="w-full">
-            <source src={videoUrl} type="video/mp4" />
-            {subtitlesUrl && <track src={subtitlesUrl} kind="subtitles" label="English" default />}
-          </video>
-        </div>
+        <>
+          <div className="mt-6">
+            <h2 className="text-2xl font-semibold">Generated Video 🎥</h2>
+            <video controls className="w-full">
+              <source src={videoUrl} type="video/mp4" />
+              {subtitlesUrl && (
+                <track
+                  src={subtitlesUrl}
+                  kind="subtitles"
+                  label="English"
+                  default
+                />
+              )}
+            </video>
+          </div>
+          <button
+            className="mt-4 py-2 px-6 bg-blue-600 rounded-lg"
+            onClick={handleDownload}
+          >
+            Download Video
+          </button>
+
+          <div className="mt-4 flex space-x-4">
+            <button
+              className="py-2 px-4 bg-green-600 rounded-lg"
+              onClick={() => handleShare("whatsapp")}
+            >
+              Share on WhatsApp
+            </button>
+            <button
+              className="py-2 px-4 bg-blue-500 rounded-lg"
+              onClick={() => handleShare("facebook")}
+            >
+              Share on Facebook
+            </button>
+            <button
+              className="py-2 px-4 bg-sky-500 rounded-lg"
+              onClick={() => handleShare("twitter")}
+            >
+              Share on Twitter
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// import React, { useState } from "react";
-
-// const BASE_URL = "http://localhost:4000";
-
-// export default function SongInputForm() {
-//   const [promptText, setPromptText] = useState("");
-//   const [script, setScript] = useState("");
-//   const [shortenedScript, setShortenedScript] = useState("");
-//   const [videoUrl, setVideoUrl] = useState("");
-//   const [subtitlesUrl, setSubtitlesUrl] = useState("");
-//   const [isLoading, setIsLoading] = useState(false);
-//   const [status, setStatus] = useState("");
-//   const [videoGenerated, setVideoGenerated] = useState(false);
-
-//   const handleGenerateScript = async () => {
-//     if (!promptText) {
-//       alert("Please enter a prompt for video generation.");
-//       return;
-//     }
-
-//     setIsLoading(true);
-//     setVideoUrl("");
-//     setStatus("Generating script...");
-
-//     try {
-//       const scriptResponse = await fetch(`${BASE_URL}/api/video/generate-script`, {
-//         method: "POST",
-//         headers: { "Content-Type": "application/json" },
-//         body: JSON.stringify({ prompt: promptText }),
-//       });
-
-//       const scriptData = await scriptResponse.json();
-//       if (!scriptResponse.ok || !scriptData.script) {
-//         throw new Error(scriptData.error || "Failed to generate script.");
-//       }
-
-//       const generatedScript = scriptData.script;
-//       setScript(generatedScript);
-//       setShortenedScript(generateShortenedScript(generatedScript));
-
-//       setStatus("Script generated, feel free to edit it.");
-//       setIsLoading(false);
-//     } catch (error) {
-//       console.error("Error:", error);
-//       alert(error.message);
-//       setIsLoading(false);
-//     }
-//   };
-
-//   const generateShortenedScript = (fullScript) => {
-//     const maxLength = 300;
-//     return fullScript.length > maxLength ? fullScript.substring(0, maxLength) + "..." : fullScript;
-//   };
-
-//   const handleGenerateVideo = async () => {
-//     if (!script) {
-//       alert("Please edit the script before submitting.");
-//       return;
-//     }
-
-//     setIsLoading(true);
-//     setVideoUrl("");
-//     setSubtitlesUrl("");
-//     setStatus("Submitting for video generation...");
-
-//     try {
-//       const videoResponse = await fetch(`${BASE_URL}/api/video/generate-video`, {
-//         method: "POST",
-//         headers: { "Content-Type": "application/json" },
-//         body: JSON.stringify({ prompt: script }),
-//       });
-
-//       const videoData = await videoResponse.json();
-//       if (!videoResponse.ok || !videoData.uuid) {
-//         throw new Error(videoData.error || "Failed to queue video generation.");
-//       }
-
-//       pollVideoStatus(videoData.uuid);
-//     } catch (error) {
-//       console.error("Error:", error);
-//       alert(error.message);
-//       setIsLoading(false);
-//     }
-//   };
-
-//   const pollVideoStatus = async (uuid) => {
-//     try {
-//       const statusResponse = await fetch(`${BASE_URL}/api/video/video-status?uuid=${uuid}`);
-//       const statusData = await statusResponse.json();
-
-//       if (statusData.status === "success" && statusData.videoUrl) {
-//         setVideoUrl(statusData.videoUrl);
-//         setSubtitlesUrl(generateSubtitlesUrl(shortenedScript));
-//         setStatus("Video generated successfully!");
-//         setVideoGenerated(true);
-//         setIsLoading(false);
-//       } else {
-//         setStatus(statusData.status);
-//         setTimeout(() => pollVideoStatus(uuid), 600000);
-//       }
-//     } catch (error) {
-//       console.error("Error polling video status:", error);
-//       setStatus("Error checking video status.");
-//       setIsLoading(false);
-//     }
-//   };
-
-//   const generateSubtitlesUrl = (shortenedScript) => {
-//     const subtitleContent = `WEBVTT\n\n00:00:00.000 --> 00:00:10.000\n${shortenedScript}\n`;
-//     const subtitleFile = new Blob([subtitleContent], { type: "text/vtt" });
-//     return URL.createObjectURL(subtitleFile);
-//   };
-
-//   return (
-//     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-6">
-//       <h1 className="text-4xl font-bold text-center mb-6">Generate AI Video 🎥</h1>
-  
-//       <textarea
-//         className="w-full max-w-xl h-32 text-lg p-4 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow shadow-lg"
-//         value={promptText}
-//         onChange={(e) => setPromptText(e.target.value)}
-//         placeholder="Enter your video idea... and generate script"
-//       />
-  
-//       <button
-//         className={`w-full max-w-xs mt-4 py-3 text-lg font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 transition-transform transform hover:scale-105 ${
-//           isLoading ? "opacity-50 cursor-not-allowed" : ""
-//         }`}
-//         onClick={handleGenerateScript}
-//         disabled={isLoading}
-//       >
-//         {isLoading ? "Generating..." : "Generate Script"}
-//       </button>
-  
-//       {status && <p className="text-lg text-gray-400 mt-4">{status}</p>}
-//       {isLoading && <p className="text-lg text-gray-400 mt-4">Loading...</p>}
-  
-//       {script && (
-//         <div className="w-full max-w-xl mt-6">
-//           <h3 className="text-2xl font-semibold mb-2">Edit Script</h3>
-//           <textarea
-//             className="w-full h-40 text-lg p-4 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow shadow-lg"
-//             value={script}
-//             onChange={(e) => setScript(e.target.value)}
-//           />
-//           <button
-//             className={`w-full max-w-xs mt-4 py-3 text-lg font-semibold rounded-lg bg-green-600 hover:bg-green-500 transition-transform transform hover:scale-105 ${
-//               isLoading ? "opacity-50 cursor-not-allowed" : ""
-//             }`}
-//             onClick={handleGenerateVideo}
-//             disabled={isLoading}
-//           >
-//             {isLoading ? "Generating Video ...please hold on!" : "Generate Video"}
-//           </button>
-//         </div>
-//       )}
-  
-//       {videoUrl && (
-//         <div className="w-full max-w-2xl flex flex-col items-center mt-6">
-//           <h2 className="text-2xl font-semibold mb-4">Generated Video 🎥</h2>
-//           <video controls className="w-full rounded-lg shadow-lg border border-gray-700">
-//             <source src={videoUrl} type="video/mp4" />
-//             {subtitlesUrl && (
-//               <track src={subtitlesUrl} kind="subtitles" label="English" default />
-//             )}
-//             Your browser does not support the video tag.
-//           </video>
-//           {videoGenerated && (
-//             <button
-//               className="mt-4 px-6 py-3 text-lg font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 transition-transform transform hover:scale-105"
-//               onClick={handleDownloadVideo}
-//             >
-//               Download Video
-//             </button>
-//           )}
-//         </div>
-//       )}
-//     </div>
-//   );
-  
-// }
